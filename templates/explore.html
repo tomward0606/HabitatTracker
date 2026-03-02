@@ -26,7 +26,7 @@
       <header class="header">
         <div class="header-left">
           <h1>Amazon Predictor</h1>
-          <p>Click inside the blue study area to select a fixed grid cell, then generate a loss risk overlay on the latest image.</p>
+          <p>Click inside the blue section to select an area, then click run to see the loss risk.</p>
         </div>
 
         <div class="header-right">
@@ -37,11 +37,6 @@
               <span class="text" id="toggleText">True Colour</span>
             </label>
           </div>
-
-          <label class="check">
-            <input id="mlToggle" type="checkbox" checked>
-            <span>Use ML (Random Forest)</span>
-          </label>
 
           <button class="btn primary" id="runBtn" type="button" disabled>Run</button>
         </div>
@@ -68,23 +63,10 @@
         <div class="meta-row">
           <div class="status" id="status" aria-live="polite">Select a grid cell.</div>
           <div class="pill">
-            <span class="k">BBox</span>
+            <span class="k">Box</span>
             <span class="v" id="bboxText">—</span>
           </div>
         </div>
-
-        <details class="advanced-bbox">
-          <summary>Advanced: enter bbox manually</summary>
-          <div class="advanced-bbox-grid">
-            <label class="field" for="minLon"><span>Min lon</span><input id="minLon" type="number" step="0.0001" inputmode="decimal"></label>
-            <label class="field" for="minLat"><span>Min lat</span><input id="minLat" type="number" step="0.0001" inputmode="decimal"></label>
-            <label class="field" for="maxLon"><span>Max lon</span><input id="maxLon" type="number" step="0.0001" inputmode="decimal"></label>
-            <label class="field" for="maxLat"><span>Max lat</span><input id="maxLat" type="number" step="0.0001" inputmode="decimal"></label>
-          </div>
-          <div class="advanced-bbox-actions">
-            <button class="btn" id="applyBBoxBtn" type="button">Apply bbox</button>
-          </div>
-        </details>
       </section>
 
       <section class="grid">
@@ -135,3 +117,4 @@
   <script defer src="{{ url_for('static', filename='explore.js') }}"></script>
 </body>
 </html>
+
