@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Explore | Habitat Change Viewer</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('explore') }}">
+      <span class="brand-text">
+        <span class="brand-title">Habitat Change Observation Tool</span>
+        <span class="brand-sub">Satellite trend projection</span>
+      </span>
+    </a>
+    <nav class="nav">
+      <a href="{{ url_for('explore') }}" class="is-active">Explore</a>
+      <a href="{{ url_for('example_page') }}">Example</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    <div class="page">
+      <header class="header">
+        <div class="header-left">
+          <h1>Amazon Predictor</h1>
+          <p>Click inside the blue study area to select a fixed grid cell, then generate a loss risk overlay on the latest image.</p>
+        </div>
+
+        <div class="header-right">
+          <div class="toggle">
+            <input id="viewToggle" type="checkbox" disabled>
+            <label for="viewToggle" title="Enable NDVI base when available">
+              <span class="track"><span class="thumb"></span></span>
+              <span class="text" id="toggleText">True Colour</span>
+            </label>
+          </div>
+
+          <label class="check">
+            <input id="mlToggle" type="checkbox" checked>
+            <span>Use ML (Random Forest)</span>
+          </label>
+
+          <button class="btn primary" id="runBtn" type="button" disabled>Run</button>
+        </div>
+      </header>
+
+      <section class="card controls">
+        <div class="controls-grid">
+          <label class="field">
+            <span>First date (T1)</span>
+            <input id="t1" type="date" value="2018-06-15">
+          </label>
+
+          <label class="field">
+            <span>Latest date (T2)</span>
+            <input id="t2" type="date" value="2024-06-15">
+          </label>
+
+          <div class="field">
+            <span>Selected grid cell</span>
+            <div class="hint" id="cellText">Click on the map to select a cell</div>
+          </div>
+        </div>
+
+        <div class="meta-row">
+          <div class="status" id="status" aria-live="polite">Select a grid cell.</div>
+          <div class="pill">
+            <span class="k">BBox</span>
+            <span class="v" id="bboxText">—</span>
+          </div>
+        </div>
+
+        <details class="advanced-bbox">
+          <summary>Advanced: enter bbox manually</summary>
+          <div class="advanced-bbox-grid">
+            <label class="field" for="minLon"><span>Min lon</span><input id="minLon" type="number" step="0.0001" inputmode="decimal"></label>
+            <label class="field" for="minLat"><span>Min lat</span><input id="minLat" type="number" step="0.0001" inputmode="decimal"></label>
+            <label class="field" for="maxLon"><span>Max lon</span><input id="maxLon" type="number" step="0.0001" inputmode="decimal"></label>
+            <label class="field" for="maxLat"><span>Max lat</span><input id="maxLat" type="number" step="0.0001" inputmode="decimal"></label>
+          </div>
+          <div class="advanced-bbox-actions">
+            <button class="btn" id="applyBBoxBtn" type="button">Apply bbox</button>
+          </div>
+        </details>
+      </section>
+
+      <section class="grid">
+        <article class="card panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Select a grid cell</div>
+              <div class="panel-sub">Blue area = usable study region. Click to snap to a fixed-size cell.</div>
+            </div>
+          </div>
+          <div class="mapbox" id="map"></div>
+        </article>
+
+        <article class="card panel prediction-panel">
+          <div class="panel-head risk-head">
+            <div>
+              <div class="panel-title">Latest + projected loss risk overlay</div>
+              <div class="panel-sub">Red = projected NDVI-defined loss risk.</div>
+            </div>
+            <div class="legend">
+              <span class="dot"></span><span>Projected loss</span>
+            </div>
+          </div>
+
+          <div class="imgbox overlaybox">
+            <img id="imgOverlayBase" class="img-fade" alt="Latest base image">
+            <img id="imgOverlayRisk" class="overlay img-fade" alt="Risk overlay">
+          </div>
+
+          <div class="pad">
+            <div class="small" id="mlSummary">—</div>
+          </div>
+        </article>
+      </section>
+
+      <div class="loading" id="loading" aria-hidden="true">
+        <div class="loading-card">
+          <div class="spinner" aria-label="Loading"></div>
+          <div class="loading-title">Computing…</div>
+          <div class="loading-sub">Earth Engine may take a moment</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script defer src="{{ url_for('static', filename='common.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='explore.js') }}"></script>
+</body>
+</html>

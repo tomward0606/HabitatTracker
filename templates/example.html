@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Example | Habitat Change Viewer</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('explore') }}">
+      <span class="brand-text">
+        <span class="brand-title">Habitat Change Observation Tool</span>
+        <span class="brand-sub">Satellite trend projection</span>
+      </span>
+    </a>
+    <nav class="nav">
+      <a href="{{ url_for('explore') }}">Explore</a>
+      <a href="{{ url_for('example_page') }}" class="is-active">Example</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    <div class="page">
+      <header class="header">
+        <div class="header-left">
+          <h1>Habitat Change Viewer</h1>
+          <p>Compare first vs latest imagery, then view projected loss risk highlighted in red on the latest image.</p>
+        </div>
+
+        <div class="header-right">
+          <div class="toggle">
+            <input id="viewToggle" type="checkbox">
+            <label for="viewToggle">
+              <span class="track"><span class="thumb"></span></span>
+              <span class="text" id="toggleText">True Colour</span>
+            </label>
+          </div>
+
+          <button class="btn primary" id="runBtn" type="button">Run</button>
+        </div>
+      </header>
+
+      <section class="card controls">
+        <div class="controls-grid">
+          <label class="field">
+            <span>Region</span>
+            <select id="region">
+              {% for k, bbox in regions.items() %}
+                <option value="{{ k }}">{{ k|replace("_"," ")|title }}</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          <label class="field">
+            <span>First date (T1)</span>
+            <input id="t1" type="date" value="2018-06-15">
+          </label>
+
+          <label class="field">
+            <span>Latest date (T2)</span>
+            <input id="t2" type="date" value="2024-06-15">
+          </label>
+        </div>
+
+        <div class="meta-row">
+          <div class="status" id="status">Idle.</div>
+          <div class="pill">
+            <span class="k">Horizon</span>
+            <span class="v" id="horizon">—</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="layout">
+        <article class="card panel panel-first">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title" id="titleFirstDate">—</div>
+              <div class="panel-sub" id="labelFirst">True colour</div>
+            </div>
+          </div>
+          <div class="imgbox">
+            <img id="imgFirst" alt="First image">
+          </div>
+        </article>
+
+        <article class="card panel panel-latest">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title" id="titleLatestDate">—</div>
+              <div class="panel-sub" id="labelLatest">True colour</div>
+            </div>
+          </div>
+          <div class="imgbox">
+            <img id="imgLatest" alt="Latest image">
+          </div>
+        </article>
+
+        <article class="card panel prediction-panel">
+          <div class="panel-head risk-head">
+            <div>
+              <div class="panel-title">Projected loss risk (overlay on latest)</div>
+              <div class="panel-sub">Red areas are projected vegetation loss risk (trend-based projection).</div>
+            </div>
+            <div class="legend">
+              <span class="dot"></span>
+              <span>Projected loss</span>
+            </div>
+          </div>
+
+          <div class="imgbox overlaybox">
+            <img id="imgOverlayBase" alt="Latest true colour base">
+            <img id="imgOverlayRisk" class="overlay" alt="Risk overlay">
+          </div>
+        </article>
+      </section>
+
+      <section class="insights">
+        <article class="card insight-card">
+          <div class="insight-head">
+            <div class="insight-title">Time Profile</div>
+            <div class="insight-sub">Observed gap vs projection horizon</div>
+          </div>
+
+          <div class="bar-group">
+            <div class="bar-row">
+              <span class="bar-label">Observed gap</span>
+              <div class="bar-track"><div class="bar-fill blue" id="barGap"></div></div>
+              <span class="bar-value" id="valGap">—</span>
+            </div>
+            <div class="bar-row">
+              <span class="bar-label">Projection horizon</span>
+              <div class="bar-track"><div class="bar-fill red" id="barHorizon"></div></div>
+              <span class="bar-value" id="valHorizon">—</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="card insight-card">
+          <div class="insight-head">
+            <div class="insight-title">Projected Loss Share</div>
+            <div class="insight-sub">Risk within currently vegetated area</div>
+          </div>
+
+          <div class="risk-wrap">
+            <div class="donut" id="riskDonut">
+              <span id="riskPct">—</span>
+            </div>
+            <div class="risk-meta">
+              <div><span>Vegetated area:</span> <strong id="vegArea">—</strong></div>
+              <div><span>Projected loss area:</span> <strong id="lossArea">—</strong></div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <div class="loading" id="loading" aria-hidden="true">
+        <div class="loading-card">
+          <div class="spinner" aria-label="Loading"></div>
+          <div class="loading-title">Computing…</div>
+          <div class="loading-sub">Retrieving data from Google Earth Engine</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
