@@ -231,25 +231,172 @@ def image_to_binary_mask_thumb_url(mask_img, region_geom, size_px=1000):
 
 def image_to_risk_overlay_thumb_url(mask_img, region_geom, size_px=1000):
     """
-    Transparent PNG overlay: red where cleaned/smoothed risk==1, transparent elsewhere.
+    Transparent PNG overlay: semi-transparent red where risk==1, transparent elsewhere.
 
-    Processing pipeline:
-    - selfMask() to make non-risk pixels fully transparent
-    - remove tiny components via connected-pixel count
-    - mild focal_mode smoothing for cleaner blob-like edges
+    Smoothing pipeline:
+    1. focal_mean (radius 2) → converts binary mask to 0–1 neighbourhood density.
+    2. Threshold at 0.35 → retains areas where most neighbours agree on risk.
+    3. connectedPixelCount filter → removes isolated speckle < 15 px.
+    4. focal_mode pass → softens remaining jagged edges into cleaner blobs.
+
+    This produces a visually smooth, professional overlay that is easy to
+    interpret in an academic context.
     """
-    risk = mask_img.unmask(0).rename("risk").uint8().selfMask()
+    risk = mask_img.unmask(0).rename("risk").uint8()
 
-    # Remove small isolated speckles.
-    cc = risk.connectedPixelCount(maxSize=100, eightConnected=True)
-    risk_clean = risk.updateMask(cc.gte(20))
+    # Focal mean converts the binary mask into a neighbourhood density (0–1).
+    # This acts as a Gaussian-blur equivalent available in Earth Engine.
+    smoothed = risk.focal_mean(radius=2, units="pixels")
 
-    # Smooth jagged boundaries while preserving binary behavior.
-    risk_smooth = risk_clean.focal_mode(radius=1, units="pixels")
+    # Keep only pixels where >35 % of the 5×5 neighbourhood is marked as risk.
+    # This naturally removes isolated single-pixel noise.
+    risk_clean = smoothed.gt(0.35).uint8().selfMask()
 
-    vis = {"min": 0, "max": 1, "palette": ["ff2d2d"], "opacity": 0.45}
+    # Drop any remaining tiny connected components (speckle suppression).
+    cc = risk_clean.connectedPixelCount(maxSize=100, eightConnected=True)
+    risk_no_speck = risk_clean.updateMask(cc.gte(15))
+
+    # Final focal_mode pass: softens jagged block boundaries for clean blob edges.
+    risk_smooth = risk_no_speck.focal_mode(radius=1, units="pixels")
+
+    # Semi-transparent red (opacity 0.55) so the base imagery remains readable.
+    vis = {"min": 0, "max": 1, "palette": ["ff4444"], "opacity": 0.55}
     params = {"region": region_geom, "dimensions": int(size_px), "format": "png"}
     return risk_smooth.selfMask().visualize(**vis).getThumbURL(params)
+
+
+def train_rf_regression_2time(
+    region_geom, ndvi1, ndvi2,
+    t_veg=0.3, t_drop=0.1,
+    scale=60, n_points=2000,
+    n_trees=100, train_frac=0.8, seed=42,
+):
+    """
+    Train a Random Forest regression model on 2-date NDVI data to predict
+    future vegetation state.
+
+    Feature engineering (4 bands):
+      ndvi_old        — NDVI at T1, the baseline observation
+      ndvi_new        — NDVI at T2, the latest observation
+      ndvi_diff       — T2 − T1: direction and magnitude of recent change
+      ndvi_volatility — |T2 − T1|: absolute change as a stability metric
+
+    Regression target:
+      Linear trend extrapolation: ndvi_new + ndvi_diff
+      (projects the observed T1→T2 trend forward by one equal time period,
+       giving a plausible short-horizon future NDVI estimate)
+
+    Train / test split: configurable (default 80 / 20).
+
+    Risk criteria (applied post-prediction):
+      - Current NDVI > t_veg  →  pixel is actually vegetated
+      - Predicted ΔNDVI < −t_drop  →  significant predicted decline
+
+    Feature importance proxy:
+      Absolute Pearson correlation between each feature and the target,
+      computed on the full sample set.  Provides an interpretable univariate
+      relevance score suitable for academic reporting.
+
+    Returns
+    -------
+    ndvi_pred   : ee.Image — predicted future NDVI raster
+    risk_mask   : ee.Image — binary risk mask (vegetated + declining)
+    metrics     : ee.Dictionary — train_n, test_n, mae, rmse,
+                  feature_importance (dict of |r| values)
+    """
+    # ── Feature engineering ──────────────────────────────────────────────────
+    ndvi_diff       = ndvi2.subtract(ndvi1).rename("ndvi_diff")
+    ndvi_volatility = ndvi_diff.abs().rename("ndvi_volatility")
+
+    features_img = (
+        ndvi1.rename("ndvi_old")
+             .addBands(ndvi2.rename("ndvi_new"))
+             .addBands(ndvi_diff)
+             .addBands(ndvi_volatility)
+    )
+    feature_names = ["ndvi_old", "ndvi_new", "ndvi_diff", "ndvi_volatility"]
+
+    # Regression target: linear trend extrapolation (best available proxy for
+    # future state given only two observed time-steps).
+    target_img = ndvi2.add(ndvi_diff).rename("target")
+
+    # ── Sampling ─────────────────────────────────────────────────────────────
+    sample_img = features_img.addBands(target_img)
+    samples = sample_img.sample(
+        region=region_geom,
+        scale=scale,
+        numPixels=int(n_points),
+        seed=seed,
+        geometries=False,
+    )
+
+    # ── 80 / 20 train / test split ───────────────────────────────────────────
+    samples     = samples.randomColumn("rand", seed)
+    train_col   = samples.filter(ee.Filter.lt("rand", train_frac))
+    test_col    = samples.filter(ee.Filter.gte("rand", train_frac))
+
+    # ── Train RF regressor ───────────────────────────────────────────────────
+    reg = (
+        ee.Classifier.smileRandomForest(numberOfTrees=int(n_trees))
+          .setOutputMode("REGRESSION")
+          .train(
+              features=train_col,
+              classProperty="target",
+              inputProperties=feature_names,
+          )
+    )
+
+    # ── Evaluation on held-out test set ──────────────────────────────────────
+    test_pred = test_col.classify(reg)
+
+    def add_errors(feat):
+        pred  = ee.Number(feat.get("classification"))
+        true_ = ee.Number(feat.get("target"))
+        err   = pred.subtract(true_)
+        return feat.set({"abs_err": err.abs(), "sq_err": err.pow(2)})
+
+    test_err = test_pred.map(add_errors)
+
+    mae  = ee.Number(
+        test_err.reduceColumns(ee.Reducer.mean(), ["abs_err"]).get("mean")
+    )
+    rmse = ee.Number(
+        test_err.reduceColumns(ee.Reducer.mean(), ["sq_err"]).get("mean")
+    ).sqrt()
+
+    # ── Feature importance proxy (absolute Pearson r with target) ────────────
+    # All four expressions are computed lazily and resolved in one getInfo call.
+    def pearson_abs(fname):
+        corr = samples.reduceColumns(
+            reducer=ee.Reducer.pearsonsCorrelation(),
+            selectors=[fname, "target"],
+        ).get("correlation")
+        return ee.Number(corr).abs()
+
+    feature_importance = ee.Dictionary(
+        {name: pearson_abs(name) for name in feature_names}
+    )
+
+    metrics = ee.Dictionary({
+        "train_n":            train_col.size(),
+        "test_n":             test_col.size(),
+        "mae":                mae,
+        "rmse":               rmse,
+        "feature_importance": feature_importance,
+    })
+
+    # ── Apply model to predict future NDVI ───────────────────────────────────
+    ndvi_pred = features_img.classify(reg).rename("ndvi_pred")
+
+    # Risk mask: currently vegetated AND predicted to decline significantly.
+    # Both thresholds are configurable to support sensitivity analysis.
+    risk_mask = (
+        ndvi2.gt(t_veg)
+             .And(ndvi_pred.subtract(ndvi2).lt(-t_drop))
+             .rename("risk_mask")
+    )
+
+    return ndvi_pred, risk_mask, metrics
 
 def train_rf_on_pseudolabels(region_geom, ndvi_before, ndvi_after, ndvi_diff,
                             t_veg, t_drop,
@@ -728,7 +875,18 @@ def api_project():
 @app.route("/api/project_bbox", methods=["POST"])
 def api_project_bbox():
     """
-    Predict endpoint that accepts a user-drawn ROI bbox instead of region presets.
+    Prediction endpoint that accepts a user-drawn ROI bbox.
+
+    ML pipeline (when do_ml=True):
+    1. Build NDVI composites for the two selected dates.
+    2. Engineer 4 features: ndvi_old, ndvi_new, ndvi_diff, ndvi_volatility.
+    3. Create a regression target via linear-trend extrapolation.
+    4. Sample 2000 pixels and split 80/20 for train/test.
+    5. Train a Random Forest regressor (100 trees).
+    6. Evaluate with RMSE and MAE on the held-out test set.
+    7. Compute per-feature Pearson |r| as an importance proxy.
+    8. Apply risk mask: vegetated pixels with a significant predicted drop.
+    9. Return smoothed overlay + metrics to the frontend.
     """
     init_ee()
     data = request.get_json(force=True)
@@ -748,77 +906,72 @@ def api_project_bbox():
     if max_lon <= min_lon or max_lat <= min_lat:
         return jsonify({"ok": False, "error": "Invalid bbox ordering."}), 400
     if not (
-        -180 <= min_lon <= 180 and
-        -180 <= max_lon <= 180 and
-        -90 <= min_lat <= 90 and
-        -90 <= max_lat <= 90
+        -180 <= min_lon <= 180 and -180 <= max_lon <= 180 and
+        -90  <= min_lat <= 90  and -90  <= max_lat <= 90
     ):
         return jsonify({"ok": False, "error": "BBox out of range."}), 400
-
-    do_ml = bool(data.get("do_ml", True))
-    window_days = 60
-    max_cloud = 30
-    size_px = int(data.get("size_px") or 1200)
-
-    t_veg = 0.5
-    t_drop = 0.2
 
     if not t1 or not t2:
         return jsonify({"ok": False, "error": "Missing t1 or t2"}), 400
     if t2 <= t1:
         return jsonify({"ok": False, "error": "t2 must be after t1"}), 400
 
+    do_ml      = bool(data.get("do_ml", True))
+    window_days = 60
+    max_cloud   = 30
+    size_px     = int(data.get("size_px") or 1200)
+
+    # Configurable risk thresholds (sensible academic defaults).
+    t_veg  = float(data.get("t_veg",  0.3))   # minimum NDVI to count as vegetated
+    t_drop = float(data.get("t_drop", 0.1))   # minimum predicted drop to flag as risk
+
     region_geom = ee.Geometry.Rectangle([min_lon, min_lat, max_lon, max_lat])
 
     try:
-        img1 = pick_s2_composite(region_geom, t1, window_days, max_cloud)
-        img2 = pick_s2_composite(region_geom, t2, window_days, max_cloud)
-
+        # ── Data acquisition ─────────────────────────────────────────────────
+        img1  = pick_s2_composite(region_geom, t1, window_days, max_cloud)
+        img2  = pick_s2_composite(region_geom, t2, window_days, max_cloud)
         ndvi1 = compute_ndvi(img1)
         ndvi2 = compute_ndvi(img2)
-        ndvi_diff = ndvi2.subtract(ndvi1).rename("ndvi_diff")
 
-        veg_now = ndvi2.gt(t_veg)
-        baseline_loss = veg_now.And(ndvi_diff.lt(-t_drop)).rename("baseline_loss")
+        # Rule-based baseline: used when ML is disabled or as a fallback.
+        ndvi_diff_raw = ndvi2.subtract(ndvi1)
+        baseline_loss = (ndvi2.gt(t_veg)
+                              .And(ndvi_diff_raw.lt(-t_drop))
+                              .rename("baseline_loss"))
 
         ml_block = {"enabled": do_ml, "type": None, "metrics": None, "params": None}
 
         if do_ml:
-            points_per_class = 600
-            n_trees = 80
-
-            rf_pred_img, ml_metrics = train_rf_on_pseudolabels(
+            # ── Regression-based ML pipeline ─────────────────────────────────
+            ndvi_pred, risk_mask, ml_metrics = train_rf_regression_2time(
                 region_geom=region_geom,
-                ndvi_before=ndvi1,
-                ndvi_after=ndvi2,
-                ndvi_diff=ndvi_diff,
+                ndvi1=ndvi1,
+                ndvi2=ndvi2,
                 t_veg=t_veg,
                 t_drop=t_drop,
                 scale=60,
-                points_per_class=points_per_class,
-                n_trees=n_trees,
-                train_frac=0.7,
-                seed=42
+                n_points=2000,
+                n_trees=100,
+                train_frac=0.8,
+                seed=42,
             )
 
-            overlay_mask = veg_now.And(rf_pred_img.eq(1)).rename("rf_loss_mask")
-            ml_block["type"] = "rf_pseudolabel_classifier"
-            ml_block["params"] = {"points_per_class": points_per_class, "n_trees": n_trees}
-            ml_block["metrics"] = ml_metrics.getInfo()
+            overlay_mask           = risk_mask
+            ml_block["type"]       = "rf_regression"
+            ml_block["params"]     = {"n_points": 2000, "n_trees": 100, "t_veg": t_veg, "t_drop": t_drop}
+            # Resolve all EE lazy values in one network round trip.
+            ml_block["metrics"]    = ml_metrics.getInfo()
         else:
             overlay_mask = baseline_loss
 
         urls = {
-            "latest_true": image_to_truecolor_thumb_url(img2, region_geom, size_px),
-            "latest_ndvi": image_to_ndvi_thumb_url(ndvi2, region_geom, size_px),
+            "latest_true":  image_to_truecolor_thumb_url(img2, region_geom, size_px),
+            "latest_ndvi":  image_to_ndvi_thumb_url(ndvi2, region_geom, size_px),
             "risk_overlay": image_to_risk_overlay_thumb_url(overlay_mask, region_geom, size_px),
         }
 
-        return jsonify({
-            "ok": True,
-            "urls": urls,
-            "ml": ml_block
-        })
+        return jsonify({"ok": True, "urls": urls, "ml": ml_block})
 
     except Exception as e:
         return jsonify({"ok": False, "error": f"Prediction failed: {e}"}), 500

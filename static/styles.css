@@ -670,3 +670,142 @@ input:focus, select:focus{
   .advanced-bbox-grid{ grid-template-columns: 1fr; }
   .method-grid{ grid-template-columns: 1fr; }
 }
+
+/* ── Map legend (green / yellow / red) ─────────────────────────────────── */
+.map-legend{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.map-legend-item{
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.map-legend-swatch{
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.08);
+}
+
+/* ── Model info panel ───────────────────────────────────────────────────── */
+.model-info-panel{
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.model-info-head{
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.model-info-body{
+  padding: 12px 14px;
+  display: grid;
+  gap: 14px;
+}
+
+/* Row of scalar metrics (RMSE / MAE / split) */
+.model-metrics-row{
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.model-metric{
+  background: #f8fbff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.model-metric-label{
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+}
+
+.model-metric-value{
+  font-size: 17px;
+  font-weight: 900;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+
+/* Feature importance section */
+.fi-section{
+  display: grid;
+  gap: 8px;
+}
+
+.fi-title{
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.fi-subtitle{
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.fi-bars{
+  display: grid;
+  gap: 7px;
+}
+
+.fi-row{
+  display: grid;
+  grid-template-columns: 160px 1fr 52px;
+  align-items: center;
+  gap: 8px;
+}
+
+.fi-label{
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fi-track{
+  height: 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.fi-fill{
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #6366f1);
+  transition: width 0.4s ease;
+}
+
+.fi-value{
+  font-size: 11.5px;
+  color: var(--muted);
+  font-weight: 700;
+  text-align: right;
+}
+
+@media (max-width: 900px){
+  .model-metrics-row{ grid-template-columns: 1fr; }
+  .fi-row{ grid-template-columns: 120px 1fr 44px; }
+}

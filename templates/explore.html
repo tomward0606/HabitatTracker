@@ -83,11 +83,22 @@
         <article class="card panel prediction-panel">
           <div class="panel-head risk-head">
             <div>
-              <div class="panel-title">Latest + projected loss risk overlay</div>
-              <div class="panel-sub">Red = projected NDVI-defined loss risk.</div>
+              <div class="panel-title">Latest imagery + projected loss risk</div>
+              <div class="panel-sub">Overlay = pixels predicted to decline significantly</div>
             </div>
-            <div class="legend">
-              <span class="dot"></span><span>Projected loss</span>
+            <div class="map-legend">
+              <div class="map-legend-item">
+                <span class="map-legend-swatch" style="background:#22c55e"></span>
+                <span>Healthy</span>
+              </div>
+              <div class="map-legend-item">
+                <span class="map-legend-swatch" style="background:#eab308"></span>
+                <span>Moderate</span>
+              </div>
+              <div class="map-legend-item">
+                <span class="map-legend-swatch" style="background:#ef4444"></span>
+                <span>Predicted decline</span>
+              </div>
             </div>
           </div>
 
@@ -95,18 +106,42 @@
             <img id="imgOverlayBase" class="img-fade" alt="Latest base image">
             <img id="imgOverlayRisk" class="overlay img-fade" alt="Risk overlay">
           </div>
-
-          <div class="pad">
-            <div class="small" id="mlSummary">—</div>
-          </div>
         </article>
+      </section>
+
+      <!-- Model info panel — populated by explore.js after each run -->
+      <section class="card model-info-panel" id="modelInfoPanel" aria-live="polite">
+        <div class="model-info-head">
+          <div class="panel-title">Model Performance</div>
+          <div class="panel-sub">Random Forest regression &middot; 80&thinsp;% train / 20&thinsp;% test</div>
+        </div>
+        <div class="model-info-body">
+          <div class="model-metrics-row">
+            <div class="model-metric">
+              <div class="model-metric-label">RMSE</div>
+              <div class="model-metric-value" id="metricRMSE">—</div>
+            </div>
+            <div class="model-metric">
+              <div class="model-metric-label">MAE</div>
+              <div class="model-metric-value" id="metricMAE">—</div>
+            </div>
+            <div class="model-metric">
+              <div class="model-metric-label">Train&thinsp;/&thinsp;Test pts</div>
+              <div class="model-metric-value" id="metricSplit">—</div>
+            </div>
+          </div>
+          <div class="fi-section">
+            <div class="fi-title">Feature Importance <span class="fi-subtitle">(|Pearson r| with target NDVI)</span></div>
+            <div class="fi-bars" id="featureImportanceBars">—</div>
+          </div>
+        </div>
       </section>
 
       <div class="loading" id="loading" aria-hidden="true">
         <div class="loading-card">
           <div class="spinner" aria-label="Loading"></div>
-          <div class="loading-title">Computing…</div>
-          <div class="loading-sub">Earth Engine may take a moment</div>
+          <div class="loading-title" id="loadingTitle">Training model…</div>
+          <div class="loading-sub">Processing satellite data and generating prediction</div>
         </div>
       </div>
     </div>

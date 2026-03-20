@@ -75,10 +75,12 @@ function setReadyState(isReady, message) {
 
 function setRunningState(isRunning, message) {
   HabitatCommon.setLoading(isRunning);
+  const runBtn = document.getElementById("runBtn");
   if (isRunning) {
-    const runBtn = document.getElementById("runBtn");
     if (runBtn) runBtn.disabled = true;
-    HabitatCommon.setText("status", message || "Running…");
+    HabitatCommon.setText("status", message || "Processing satellite data and generating prediction…");
+  } else {
+    // Button re-enabled by setReadyState / setErrorState after results arrive.
   }
 }
 
@@ -237,6 +239,74 @@ function initMap() {
   });
 }
 
+/**
+ * Render RMSE, MAE, train/test split, and feature importance bars
+ * into the model info panel after a successful prediction run.
+ *
+ * @param {object} ml - The `ml` block returned by /api/project_bbox
+ */
+function renderModelMetrics(ml) {
+  if (!ml || !ml.enabled) {
+    HabitatCommon.setText("metricRMSE",  "—");
+    HabitatCommon.setText("metricMAE",   "—");
+    HabitatCommon.setText("metricSplit", ml?.enabled ? "baseline" : "—");
+    const bars = document.getElementById("featureImportanceBars");
+    if (bars) bars.textContent = "ML disabled.";
+    return;
+  }
+
+  const m = ml.metrics || {};
+
+  // Scalar metrics
+  const rmse = m.rmse != null ? Number(m.rmse).toFixed(4) : "—";
+  const mae  = m.mae  != null ? Number(m.mae).toFixed(4)  : "—";
+  const split = (m.train_n != null && m.test_n != null)
+    ? `${m.train_n} / ${m.test_n}`
+    : "—";
+
+  HabitatCommon.setText("metricRMSE",  rmse);
+  HabitatCommon.setText("metricMAE",   mae);
+  HabitatCommon.setText("metricSplit", split);
+
+  // Feature importance bars
+  const barsEl = document.getElementById("featureImportanceBars");
+  if (!barsEl) return;
+
+  const fi = m.feature_importance;
+  if (!fi || typeof fi !== "object" || Object.keys(fi).length === 0) {
+    barsEl.textContent = "Not available.";
+    return;
+  }
+
+  // Normalise to [0, 1] relative to the highest scoring feature.
+  const entries = Object.entries(fi).map(([k, v]) => [k, Number(v)]);
+  const maxVal  = Math.max(...entries.map(([, v]) => v), 1e-9);
+
+  // Friendly display names
+  const labels = {
+    ndvi_old:        "NDVI (T1 baseline)",
+    ndvi_new:        "NDVI (T2 latest)",
+    ndvi_diff:       "NDVI change (T2−T1)",
+    ndvi_volatility: "NDVI volatility",
+  };
+
+  barsEl.innerHTML = entries
+    .sort(([, a], [, b]) => b - a)   // highest importance first
+    .map(([key, val]) => {
+      const pct   = ((val / maxVal) * 100).toFixed(1);
+      const label = labels[key] || key;
+      return `
+        <div class="fi-row">
+          <div class="fi-label">${label}</div>
+          <div class="fi-track">
+            <div class="fi-fill" style="width:${pct}%"></div>
+          </div>
+          <div class="fi-value">${Number(val).toFixed(3)}</div>
+        </div>`;
+    })
+    .join("");
+}
+
 async function runPrediction() {
   const t1 = document.getElementById("t1")?.value;
   const t2 = document.getElementById("t2")?.value;
@@ -254,7 +324,7 @@ async function runPrediction() {
     return;
   }
 
-  setRunningState(true, doML ? "Running… (ML enabled)" : "Running… (baseline)");
+    setRunningState(true, "Processing satellite data and generating prediction…");
 
   try {
     const out = await HabitatCommon.postJSON("/api/project_bbox", {
@@ -283,12 +353,7 @@ async function runPrediction() {
     applyBaseImageByToggle();
     setImageWithFade(document.getElementById("imgOverlayRisk"), state.riskOverlayUrl);
 
-    if (out.ml?.enabled && out.ml?.metrics) {
-      const acc = out.ml.metrics.accuracy ?? out.ml.metrics.test_accuracy ?? null;
-      HabitatCommon.setText("mlSummary", acc != null ? `ML accuracy: ${(acc * 100).toFixed(1)}%` : "ML ran (metrics available).");
-    } else {
-      HabitatCommon.setText("mlSummary", out.ml?.enabled ? "ML ran." : "Baseline threshold mask.");
-    }
+    renderModelMetrics(out.ml);
 
     HabitatCommon.setLoading(false);
     setReadyState(true, "Done ✅");
